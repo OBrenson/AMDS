@@ -1,39 +1,40 @@
 /*$TET$$header*/
-/*--------------------------------------------------------------------------*/
-/*  Copyright 2021 Sergei Vostokin                                          */
-/*                                                                          */
-/*  Licensed under the Apache License, Version 2.0 (the "License");         */
-/*  you may not use this file except in compliance with the License.        */
-/*  You may obtain a copy of the License at                                 */
-/*                                                                          */
-/*  http://www.apache.org/licenses/LICENSE-2.0                              */
-/*                                                                          */
-/*  Unless required by applicable law or agreed to in writing, software     */
-/*  distributed under the License is distributed on an "AS IS" BASIS,       */
-/*  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.*/
-/*  See the License for the specific language governing permissions and     */
-/*  limitations under the License.                                          */
-/*--------------------------------------------------------------------------*/
-
-const int NUMBER_OF_BRICKS = 2;
 
 #include <templet.hpp>
 #include <cmath>
 #include <iostream>
 #include <ctime>
+#include <array>
+#include <cstdlib>
+#include <cmath>
 
-class brick : public templet::message {
-public:
-	brick(templet::actor*a=0, templet::message_adaptor ma=0) :templet::message(a, ma) {}
-	int brick_ID;
+class Point {
+    public:
+        Point(){}
+        Point(int x, int y) {
+            X = x;
+            Y = y;
+        }
+    int X;
+    int Y;
+    bool isBusy = false;
 };
+
+class DataPoints : public templet::message {
+public:
+	DataPoints(templet::actor*a=0, templet::message_adaptor ma=0) :templet::message(a, ma) {}
+	std::array<Point, 4> points;
+};
+
 /*$TET$*/
 
-#pragma templet !source(out!brick)
+#pragma templet !source(in?DataPoints,out!DataPoints)
 
 struct source :public templet::actor {
+	static void on_in_adapter(templet::actor*a, templet::message*m) {
+		((source*)a)->on_in(*(DataPoints*)m);}
 	static void on_out_adapter(templet::actor*a, templet::message*m) {
-		((source*)a)->on_out(*(brick*)m);}
+		((source*)a)->on_out(*(DataPoints*)m);}
 
 	source(templet::engine&e) :source() {
 		source::engines(e);
@@ -58,153 +59,126 @@ struct source :public templet::actor {
 /*$TET$*/
 	}
 
-	inline void on_out(brick&m) {
-/*$TET$source$out*/
-       if(number_of_bricks > 0){ 
-           m.brick_ID = number_of_bricks--;
-           m.send(); 
-           
-		   std::cout << "the source worker passes a brick #" << m.brick_ID << std::endl;
-        }
+	inline void on_in(DataPoints&m) {
+/*$TET$source$in*/
+        stop();
 /*$TET$*/
 	}
 
-	brick out;
+	inline void on_out(DataPoints&m) {
+/*$TET$source$out*/
+        srand(10);
+        for(int i = 0; i < 4; i++) {
+            m.points[i] = Point(rand() % 100, rand() % 100);
+            std::cout << "Point: X = " << m.points[i].X << " Y = " << m.points[i].Y << std::endl;
+        }
+        m.send();
+/*$TET$*/
+	}
+
+	void in(DataPoints&m) { m.bind(this, &on_in_adapter); }
+	DataPoints out;
 
 /*$TET$source$$footer*/
-    int number_of_bricks;
 /*$TET$*/
 };
 
-#pragma templet mediator(in?brick,out!brick)
+#pragma templet pointHendler(in?DataPoints,out!DataPoints)
 
-struct mediator :public templet::actor {
+struct pointHendler :public templet::actor {
 	static void on_in_adapter(templet::actor*a, templet::message*m) {
-		((mediator*)a)->on_in(*(brick*)m);}
+		((pointHendler*)a)->on_in(*(DataPoints*)m);}
 	static void on_out_adapter(templet::actor*a, templet::message*m) {
-		((mediator*)a)->on_out(*(brick*)m);}
+		((pointHendler*)a)->on_out(*(DataPoints*)m);}
 
-	mediator(templet::engine&e) :mediator() {
-		mediator::engines(e);
+	pointHendler(templet::engine&e) :pointHendler() {
+		pointHendler::engines(e);
 	}
 
-	mediator() :templet::actor(false),
+	pointHendler() :templet::actor(false),
 		out(this, &on_out_adapter)
 	{
-/*$TET$mediator$mediator*/
-        _in = 0;
+/*$TET$pointHendler$pointHendler*/
 /*$TET$*/
 	}
 
 	void engines(templet::engine&e) {
 		templet::actor::engine(e);
-/*$TET$mediator$engines*/
+/*$TET$pointHendler$engines*/
 /*$TET$*/
 	}
 
-	inline void on_in(brick&m) {
-/*$TET$mediator$in*/
-        _in = &m;
-		move_a_brick();
-/*$TET$*/
-	}
-
-	inline void on_out(brick&m) {
-/*$TET$mediator$out*/
-		move_a_brick();
-/*$TET$*/
-	}
-
-	void in(brick&m) { m.bind(this, &on_in_adapter); }
-	brick out;
-
-/*$TET$mediator$$footer*/
-    void move_a_brick(){
-        if(access(_in) && access(out)){
-			
-			int brick_ID = _in->brick_ID;
-			_in->send();
-            std::cout << "the mediator worker #" 
-                << mediator_ID <<" takes a brick #" << brick_ID << std::endl;
-
-			out.brick_ID = brick_ID;
-			out.send();
-			std::cout << "the mediator worker #"
-				<< mediator_ID <<" passes a brick #" << brick_ID << std::endl;
+	inline void on_in(DataPoints&m) {
+/*$TET$pointHendler$in*/
+        std::array<Point, 4> points = m.points;
+        int x;
+        int y;
+        int marker = -1;
+        for(int i = 0; i < points.size(); i++) {
+            if(!points[i].isBusy) {
+                x = points[i].X;
+                y = points[i].Y;
+                points[i].isBusy = true;
+                marker = i;
+                break;
+            }
         }
-    }
-    
-    brick* _in;
-    int  mediator_ID;
-/*$TET$*/
-};
-
-#pragma templet destination(in?brick)
-
-struct destination :public templet::actor {
-	static void on_in_adapter(templet::actor*a, templet::message*m) {
-		((destination*)a)->on_in(*(brick*)m);}
-
-	destination(templet::engine&e) :destination() {
-		destination::engines(e);
-	}
-
-	destination() :templet::actor(false)
-	{
-/*$TET$destination$destination*/
-        number_of_bricks = 0;
-/*$TET$*/
-	}
-
-	void engines(templet::engine&e) {
-		templet::actor::engine(e);
-/*$TET$destination$engines*/
+        if(marker == -1) {
+            std::cout << "All points are busy" << std::endl;
+            return;
+        }
+        out.points = points;
+        out.send();
+        std::cout << "Points sended" << std::endl;
+        int resX;
+        int resY;
+        double res = 100000;
+        for(int i = 0; i < points.size(); i++) {
+            if(i != marker) {
+                double tmp = std::sqrt(std::pow(points[i].X - x, 2) + std::pow(points[i].Y - y, 2));
+                if(tmp < res) {
+                    res = tmp;
+                    resX = points[i].X;
+                    resY = points[i].Y;
+                }
+            }
+        }
+        std::cout << "The nearest point for X: " << x << " Y: " << y << " is point with X: " << resX << " Y: " << resY << ". The distance is " << res << std::endl;
 /*$TET$*/
 	}
 
-	inline void on_in(brick&m) {
-/*$TET$destination$in*/
-        number_of_bricks++;
-        if(m.brick_ID == 1) stop(); else  m.send();
-        
-		std::cout << "the destination worker takes a brick #" << m.brick_ID << std::endl;
+	inline void on_out(DataPoints&m) {
+/*$TET$pointHendler$out*/
 /*$TET$*/
 	}
 
-	void in(brick&m) { m.bind(this, &on_in_adapter); }
+	void in(DataPoints&m) { m.bind(this, &on_in_adapter); }
+	DataPoints out;
 
-/*$TET$destination$$footer*/
-    int number_of_bricks;
+/*$TET$pointHendler$$footer*/
 /*$TET$*/
 };
 
 /*$TET$$footer*/
-
-int main()
+int main() 
 {
-	templet::engine eng;
-
-	source       source_worker(eng);
-	mediator     mediator_worker_1(eng), mediator_worker_2(eng), mediator_worker_3(eng);
-	destination  destination_worker(eng);
-
-    mediator_worker_1.in(source_worker.out);
-    mediator_worker_2.in(mediator_worker_1.out);
-    mediator_worker_3.in(mediator_worker_2.out);
-
-    destination_worker.in(mediator_worker_3.out);
+    std::cout << "started" << std::endl;
+    templet::engine eng;
     
-    source_worker.number_of_bricks = NUMBER_OF_BRICKS;
+    source source_w(eng);
+    pointHendler a1(eng),a2(eng),a3(eng),a4(eng);
     
-    mediator_worker_1.mediator_ID = 1;
-    mediator_worker_2.mediator_ID = 2;
-    mediator_worker_3.mediator_ID = 3;
+    a1.in(source_w.out);
+    a2.in(a1.out);
+    a3.in(a2.out);
+    a4.in(a3.out);
+    
+    source_w.in(a4.out);
     
     eng.start();
-
-	if (eng.stopped()) {
-		std::cout << "all " << destination_worker.number_of_bricks 
-            << " bricks were moved to a new place. done !!!";
+    
+    if (eng.stopped()) {
+		std::cout << "DONE !!!";
 		return EXIT_SUCCESS;
 	}
 
