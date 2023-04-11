@@ -7,7 +7,7 @@
 #include <array>
 #include <cstdlib>
 #include <cmath>
-
+#include <basesim.hpp>
 class Point {
     public:
         Point(){}
@@ -24,6 +24,7 @@ class DataPoints : public templet::message {
 public:
 	DataPoints(templet::actor*a=0, templet::message_adaptor ma=0) :templet::message(a, ma) {}
 	std::array<Point, 4> points;
+    Point p;
 };
 
 /*$TET$*/
@@ -67,9 +68,9 @@ struct source :public templet::actor {
 
 	inline void on_out(DataPoints&m) {
 /*$TET$source$out*/
-        srand(10);
+        
         for(int i = 0; i < 4; i++) {
-            m.points[i] = Point(rand() % 100, rand() % 100);
+            m.points[i] = Point(i, i);
             std::cout << "Point: X = " << m.points[i].X << " Y = " << m.points[i].Y << std::endl;
         }
         m.send();
@@ -83,67 +84,50 @@ struct source :public templet::actor {
 /*$TET$*/
 };
 
-#pragma templet pointHendler(in?DataPoints,out!DataPoints)
+#pragma templet pointHendler(in?DataPoints,out!DataPoints,t:basesim)
 
 struct pointHendler :public templet::actor {
 	static void on_in_adapter(templet::actor*a, templet::message*m) {
 		((pointHendler*)a)->on_in(*(DataPoints*)m);}
 	static void on_out_adapter(templet::actor*a, templet::message*m) {
 		((pointHendler*)a)->on_out(*(DataPoints*)m);}
+	static void on_t_adapter(templet::actor*a, templet::task*t) {
+		((pointHendler*)a)->on_t(*(templet::basesim_task*)t);}
 
-	pointHendler(templet::engine&e) :pointHendler() {
-		pointHendler::engines(e);
+	pointHendler(templet::engine&e,templet::basesim_engine&te_basesim) :pointHendler() {
+		pointHendler::engines(e,te_basesim);
 	}
 
 	pointHendler() :templet::actor(false),
-		out(this, &on_out_adapter)
+		out(this, &on_out_adapter),
+		t(this, &on_t_adapter)
 	{
 /*$TET$pointHendler$pointHendler*/
+            _in = 0;
 /*$TET$*/
 	}
 
-	void engines(templet::engine&e) {
+	void engines(templet::engine&e,templet::basesim_engine&te_basesim) {
 		templet::actor::engine(e);
+		t.engine(te_basesim);
 /*$TET$pointHendler$engines*/
 /*$TET$*/
 	}
 
 	inline void on_in(DataPoints&m) {
 /*$TET$pointHendler$in*/
+        _in = &m;
         std::array<Point, 4> points = m.points;
-        int x;
-        int y;
-        int marker = -1;
         for(int i = 0; i < points.size(); i++) {
             if(!points[i].isBusy) {
-                x = points[i].X;
-                y = points[i].Y;
                 points[i].isBusy = true;
-                marker = i;
+                _in -> p = points[i];
                 break;
             }
         }
-        if(marker == -1) {
-            std::cout << "All points are busy" << std::endl;
-            return;
-        }
         out.points = points;
         out.send();
-        std::cout << "Points sended" << std::endl;
-        int resX;
-        int resY;
-        double res = 100000;
-        for(int i = 0; i < points.size(); i++) {
-            if(i != marker) {
-                double tmp = std::sqrt(std::pow(points[i].X - x, 2) + std::pow(points[i].Y - y, 2));
-                if(tmp < res) {
-                    res = tmp;
-                    resX = points[i].X;
-                    resY = points[i].Y;
-                }
-            }
-        }
-        std::cout << "The nearest point for X: " << x << " Y: " << y << " is point with X: " << resX << " Y: " << resY << ". The distance is " << res << std::endl;
+        t.submit();
 /*$TET$*/
 	}
 
@@ -152,10 +136,40 @@ struct pointHendler :public templet::actor {
 /*$TET$*/
 	}
 
+	inline void on_t(templet::basesim_task&t) {
+/*$TET$pointHendler$t*/
+        calculate();
+        t.delay(1);
+/*$TET$*/
+	}
+
 	void in(DataPoints&m) { m.bind(this, &on_in_adapter); }
 	DataPoints out;
+	templet::basesim_task t;
 
 /*$TET$pointHendler$$footer*/
+    void calculate() {
+        int resX;
+        int resY;
+        double res = 100000;
+        if (access(_in)) {
+            Point p = _in->p;
+        	for(int i = 0; i < _in->points.size(); i++) {
+            	if(*(&_in->points[i].X) != p.X && *(&_in->points[i].Y) != p.Y) {
+                	double tmp = std::sqrt(std::pow(_in -> points[i].X - p.X, 2) + std::pow(_in ->points[i].Y - p.Y, 2));
+                	if(tmp < res) {
+                    	res = tmp;
+                    	resX = _in->points[i].X;
+                    	resY = _in->points[i].Y;
+                	}
+            	}
+        	}
+        	std::cout << "The nearest point for X: " << p.X << " Y: " << p.Y << " is point with X: " << resX << " Y: " << resY << ". The distance is " << res << 
+            	std::endl;
+        }
+	}
+    
+    DataPoints* _in;
 /*$TET$*/
 };
 
@@ -163,22 +177,35 @@ struct pointHendler :public templet::actor {
 int main() 
 {
     std::cout << "started" << std::endl;
+    
     templet::engine eng;
+    templet::basesim_engine teng;
     
-    source source_w(eng);
-    pointHendler a1(eng),a2(eng),a3(eng),a4(eng);
+    int actors_num = 4;
     
-    a1.in(source_w.out);
-    a2.in(a1.out);
-    a3.in(a2.out);
-    a4.in(a3.out);
+	source       source_w(eng);
+	pointHendler     actors[actors_num];
+
+    actors[0].in(source_w.out);
     
-    source_w.in(a4.out);
+    for(int i=1; i < actors_num; i++ )       
+        actors[i].in(actors[i-1].out);
+
+    source_w.in(actors[actors_num - 1].out);
     
+    for(int i=0;i<actors_num;i++){
+        actors[i].engines(eng,teng);
+    }
+    srand(time(NULL));
+
     eng.start();
-    
-    if (eng.stopped()) {
+    teng.run();
+
+	if (eng.stopped()) {
 		std::cout << "DONE !!!";
+        std::cout << "Maximum number of tasks executed in parallel : " << teng.Pmax() << std::endl;
+		std::cout << "Time of sequential execution of all tasks    : " << teng.T1() << std::endl;
+		std::cout << "Time of parallel   execution of all tasks    : " << teng.Tp() << std::endl;
 		return EXIT_SUCCESS;
 	}
 
