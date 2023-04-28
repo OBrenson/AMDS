@@ -4,12 +4,13 @@
 
 #include <templet.hpp>
 #include <everest.hpp>
+#include <string>
 #include <cmath>
 #include <iostream>
 #include <ctime>
 #include <array>
 #include <cstdlib>
-#include <cmath>
+
 class Point {
     public:
         Point(){}
@@ -121,7 +122,9 @@ struct pointHendler :public templet::actor {
         _in = &m;
         
         std::array<Point, 4> points = m.points;
+        std::string mes = "";
         for(int i = 0; i < points.size(); i++) {
+            mes = mes + std::to_string(points[i].X) + ", " + std::to_string(points[i].Y) + ",";
             if(!points[i].isBusy) {
                 points[i].isBusy = true;
                 _in -> p = points[i];
@@ -129,12 +132,13 @@ struct pointHendler :public templet::actor {
             }
         }
         
-		json in;
-		in["name"] = "var8";
-		in["inputs"]["input-array"] = points;
+        
+		json inj;
+		inj["name"] = "var8";
+		inj["inputs"]["input-array"] = 1232;
         out.send();
         
-		if (t.submit(in)) std::cout << "task submit succeeded" << std::endl;
+		if (t.submit(inj)) std::cout << "task submit succeeded" << std::endl;
 		else std::cout << "task submit failed" << std::endl;
 /*$TET$*/
 	}
@@ -157,6 +161,30 @@ struct pointHendler :public templet::actor {
 	templet::everest_task t;
 
 /*$TET$pointHendler$$footer*/
+void convertStrtoArr(string str)
+{
+    int str_length = str.length();
+    int arr[str_length] = { 0 };
+    int j = 0, i = 0;
+    for (i = 0; str[i] != ';'; i++) {
+ 
+        if (str[i] == ',')
+            continue;
+         if (str[i] == ' '){
+            j++;
+        }
+        else {
+            arr[j] = arr[j] * 10 + (str[i] - 48);
+        }
+    }
+    
+     std::array<Point,4> res;
+    for (i = 0; i <= j; i = i+2) {
+       res[i/2] = Point(arr[i], arr[i+1]);
+    }
+     return res;
+}
+    
     DataPoints* _in;
 /*$TET$*/
 };
