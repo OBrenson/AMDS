@@ -28,6 +28,7 @@ public:
 	DataPoints(templet::actor*a=0, templet::message_adaptor ma=0) :templet::message(a, ma) {}
 	std::array<Point, 4> points;
     Point p;
+    std::string mes;
 };
 
 /*$TET$*/
@@ -75,6 +76,12 @@ struct source :public templet::actor {
             m.points[i] = Point(i, i + 1);
             std::cout << "Point: X = " << m.points[i].X << " Y = " << m.points[i].Y << std::endl;
         }
+        std::string mes = "";
+        for(int i = 0; i < m.points.size(); i++) {
+            mes = mes + std::to_string(m.points[i].X) + "," + std::to_string(m.points[i].Y) + ",";
+        }
+        mes[mes.length() - 1] = ';';
+        m.mes = mes;
         m.send();
 /*$TET$*/
 	}
@@ -106,7 +113,7 @@ struct pointHendler :public templet::actor {
 	{
 /*$TET$pointHendler$pointHendler*/
         _in = 0;
-        t.app_id("644b5b3614000083cc25b2ee");
+        t.app_id("6450a3d5140000e70825d1c6");
 /*$TET$*/
 	}
 
@@ -122,23 +129,28 @@ struct pointHendler :public templet::actor {
         _in = &m;
         
         std::array<Point, 4> points = m.points;
-        std::string mes = "";
+		int index = 0;
         for(int i = 0; i < points.size(); i++) {
-            mes = mes + std::to_string(points[i].X) + ", " + std::to_string(points[i].Y) + ",";
             if(!points[i].isBusy) {
+				index = i;
                 points[i].isBusy = true;
                 _in -> p = points[i];
                 break;
             }
         }
-        
-        
-		json inj;
-		inj["name"] = "var8";
-		inj["inputs"]["input-array"] = 1232;
-        out.send();
-        
-		if (t.submit(inj)) std::cout << "task submit succeeded" << std::endl;
+          
+		json in;
+		in["name"] = "var8";
+        in["inputs"]["input-string"] = m.mes;
+        std::cout<<m.mes<<"\n"<<std::to_string(index)<<"\n";
+        in["inputs"]["input-index"] = std::to_string(index);
+		out.points = points;
+        out.mes = m.mes;
+        // std::cout<<in;
+         out.send();
+		if (t.submit(in)) {
+            std::cout << "task submit succeeded" << std::endl;
+        }
 		else std::cout << "task submit failed" << std::endl;
 /*$TET$*/
 	}
@@ -150,9 +162,11 @@ struct pointHendler :public templet::actor {
 
 	inline void on_t(templet::everest_task&t) {
 /*$TET$pointHendler$t*/
-        json out = t.result();
-		_in->points =  out["output-array"];
-		_in->send();
+        json res = t.result();
+        std::string str = res["output-string"];
+        
+		std::cout << str << std::endl;
+		// _in->send();
 /*$TET$*/
 	}
 
@@ -161,7 +175,7 @@ struct pointHendler :public templet::actor {
 	templet::everest_task t;
 
 /*$TET$pointHendler$$footer*/
-void convertStrtoArr(string str)
+std::array<Point,4> convertStrtoArr(std::string str)
 {
     int str_length = str.length();
     int arr[str_length] = { 0 };
@@ -178,7 +192,7 @@ void convertStrtoArr(string str)
         }
     }
     
-     std::array<Point,4> res;
+    std::array<Point,4> res;
     for (i = 0; i <= j; i = i+2) {
        res[i/2] = Point(arr[i], arr[i+1]);
     }
@@ -195,7 +209,12 @@ int main()
     std::cout << "started" << std::endl;
     
     templet::engine eng;
-	templet::everest_engine teng("1t4nf1vlzsjaq8zd4d7d36pwroiird12e7hpvczqrfvn4noy15rmji3s0187ay7x");
+	templet::everest_engine teng("Oleg-brenyov@yandex.ru", "Qwerty12345");
+    
+    if (!teng) {
+		std::cout << "task engine is not connected to the Everest server..." << std::endl;
+		return EXIT_FAILURE;
+	}
     
     int actors_num = 4;
     
@@ -214,6 +233,8 @@ int main()
     }
 
     eng.start();
+    
+try_continue:
     teng.run();
 
 	if (eng.stopped()) {
@@ -221,7 +242,59 @@ int main()
 		return EXIT_SUCCESS;
 	}
 
-	std::cout << "something broke (((" << std::endl;
+	static int recovery_tries = 3;
+	templet::everest_error cntxt;
+
+	if (teng.error(&cntxt)) {
+		std::cout << "...task engine error..." << std::endl;
+
+		if (recovery_tries--) {
+			std::cout << "error information:" << std::endl;
+
+			std::cout << "type ID : " << *cntxt._type << std::endl;
+			std::cout << "HTML response code : " << cntxt._code << std::endl;
+			std::cout << "HTML response : " << cntxt._response << std::endl;
+			std::cout << "task input : " << cntxt._task_input << std::endl;
+
+			// trying to fix an error
+			switch (*cntxt._type) {
+				case templet::everest_error::NOT_CONNECTED:
+				{
+					std::cout << "error string : NOT_CONNECTED" << std::endl;
+					std::cout << "the task engine is not initialized properly -- fatal error, exiting" << std::endl;
+					return EXIT_FAILURE;
+				}
+				case templet::everest_error::SUBMIT_FAILED:
+				{
+					std::cout << "error string : SUBMIT_FAILED" << std::endl;
+					std::cout << "resubmitting the task" << std::endl;
+					json input = json::parse(cntxt._task_input);
+					// here you may fix something in the input 
+					cntxt._task->resubmit(input);
+					break;
+				}
+				case templet::everest_error::TASK_CHECK_FAILED:
+				{
+					std::cout << "error string : TASK_CHECK_FAILED" << std::endl;
+					std::cout << "trying to check the task status again" << std::endl;
+					*cntxt._type = templet::everest_error::NOT_ERROR;
+					break;
+				}
+				case templet::everest_error::TASK_FAILED_OR_CANCELLED:
+				{
+					std::cout << "error string : TASK_FAILED_OR_CANCELLED" << std::endl;
+					std::cout << "resubmitting the task" << std::endl;
+					json input = json::parse(cntxt._task_input);
+					// here you may fix something in the input 
+					cntxt._task->resubmit(input);
+				}
+			}
+	
+			goto try_continue;
+		}
+	}
+	else 
+		std::cout << "logical error" << std::endl;
 	return EXIT_FAILURE;
 }
 /*$TET$*/
